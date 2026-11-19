@@ -8,14 +8,16 @@ No RunPod API key, no access to your RunPod account.
 This is an unofficial community tool: neither FLOP Labs nor RunPod made it. It replaces steps 6 and 7 of the guide
 "Launch Your FLOP GPU Node" by BreizhNode on [Medium](https://medium.com/@breizh-node): do the steps before them first.
 
-[Lire en français](README.fr.md). Version 0.3.2, 18 November 2026. The command's messages are in French.
+[Lire en français](README.fr.md). Version 0.3.3, 19 November 2026. The command speaks English by default;
+`FLOP_GPU_LANG=fr` switches it to French and is remembered in `flop-gpu.etat`. That happens
+once the pod's ID is given; until then, set `FLOP_GPU_LANG=fr` on each run.
 
 ## Before you start
 
 - **RunPod bills your GPU by the hour until you Stop, then Terminate it**, even if the command stops or your worker is
-  down. The console shows the hourly price before you deploy: from 0.16 $ to 0.69 $ for a suitable card on 14 November
-  2026, depending on stock (Community or Secure Cloud), that is 4 to 17 $ a day. At 0 $ of credit, RunPod deletes the
-  pod and your worker loses its GPU: turn on auto-recharge or a balance alert (Billing).
+  down. The console shows the hourly price before you deploy: from $0.16 to $0.69 for a suitable card on 14 November
+  2026, depending on stock (Community or Secure Cloud), that is $4 to $17 a day. At $0 of credit, RunPod deletes the
+  pod and your worker loses its GPU: turn on Auto-pay or a Low balance alert (Billing).
 - **Devnet only**: test tokens have no value and there are no rewards yet.
 
 ## Run it
@@ -23,7 +25,7 @@ This is an unofficial community tool: neither FLOP Labs nor RunPod made it. It r
 On your VPS, as root (type `sudo -i` first), once `/opt/flop-miner` and its `miner.env` are ready:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Syphiliis/flop-gpu/v0.3.2/flop-gpu.sh -o /root/flop-gpu.sh && bash /root/flop-gpu.sh
+curl -fsSL https://raw.githubusercontent.com/Syphiliis/flop-gpu/v0.3.3/flop-gpu.sh -o /root/flop-gpu.sh && bash /root/flop-gpu.sh
 ```
 
 Nothing you type is shown, by design. The command:
@@ -40,11 +42,11 @@ Nothing you type is shown, by design. The command:
 6. waits up to 40 minutes, one line per minute, until the GPU is ready; writes `miner.env`, starts the worker, and ends
    with your pod, how to stop paying, and three lines to paste before step 8 of the guide.
 
-To see the instructions without changing anything: `bash /root/flop-gpu.sh --a-vide`.
+To see the instructions without changing anything: `bash /root/flop-gpu.sh --dry-run`.
 
 If it stops halfway (SSH cut, window closed, Ctrl+C), run `bash /root/flop-gpu.sh` again: it offers to keep the pod it
-already knows (Enter), or to give a new one (`n`). If your pod restarts in a loop because the key is missing, add the
-variable with **Edit Pod** on that pod, and give its ID again; do not deploy a second one.
+already knows (Enter), or to enter a new one (`n`). If your pod restarts in a loop because the key is missing, add the
+variable with **Edit Pod**, in the three-dot menu of that pod, and give its ID again; do not deploy a second one.
 
 To stop paying: RunPod console, **Pods**, your pod, **Stop**, then **Terminate** (the trash icon).
 
@@ -73,7 +75,7 @@ To stop paying: RunPod console, **Pods**, your pod, **Stop**, then **Terminate**
 
 - `/opt/flop-miner/miner.env`: `OPENAI_BASE_URL` and `SESSION_PUBLIC_HOST`, replaced in one go, mode 600; the decoding
   policy, through FLOP's `decode-policy.sh`.
-- `/opt/flop-miner/flop-gpu.etat`: the provider and the pod's ID, no secret, mode 600.
+- `/opt/flop-miner/flop-gpu.etat`: the provider, the pod's ID and the language, no secret, mode 600.
 - `/opt/flop-miner/.flop-gpu.verrou`: the lock.
 
 It contacts your pod through RunPod's HTTPS proxy and FLOP's network through `decode-policy.sh`; Docker then pulls the
@@ -83,9 +85,10 @@ worker's images. Nothing goes to the authors of this tool.
 
 | Option or variable | Effect |
 |---|---|
-| `--a-vide`, `--dry-run` | dry run: shows the instructions, nothing is written or started |
-| `-h`, `--aide`, `--help` | the command's own summary |
+| `--dry-run`, `--a-vide` | dry run: shows the instructions, nothing is written or started |
+| `-h`, `--help`, `--aide` | the command's own summary, in its language |
 | `FLOP_RUNPOD_TEMPLATE` | another RunPod template than `tipfc9vtff` |
+| `FLOP_GPU_LANG` | `fr` for French messages, `en` for English (the default); remembered in `flop-gpu.etat` |
 | `FLOP_GPU_ATTENTE_MIN` | how long to wait for the GPU, in minutes (40 by default) |
 | `FLOP_MINER_DIR` | another folder than `/opt/flop-miner` |
 
@@ -97,17 +100,18 @@ Exit codes: 0 done; 2 VPS not ready or wrong usage; 3 decoding policy; 6 pod (ID
 The command is one readable bash file:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Syphiliis/flop-gpu/v0.3.2/flop-gpu.sh -o /root/flop-gpu.sh
+curl -fsSL https://raw.githubusercontent.com/Syphiliis/flop-gpu/v0.3.3/flop-gpu.sh -o /root/flop-gpu.sh
 less /root/flop-gpu.sh
-bash /root/flop-gpu.sh --a-vide
+bash /root/flop-gpu.sh --dry-run
 ```
 
-You run the very file you read, and the address names a version (`v0.3.2`), not the latest changes.
+You run the very file you read, and the address names a version (`v0.3.3`), not the latest changes.
 
 ## Status
 
-Version 0.3.2, 18 November 2026. Checked on a test bench that simulates the VPS, the RunPod proxy and Docker: 25
-scenarios, no GPU, the worker never started.
+Version 0.3.3, 19 November 2026: English messages by default, French with `FLOP_GPU_LANG=fr`; otherwise the same
+command as 0.3.2. Version 0.3.3 was checked on a test bench that simulates the VPS, the RunPod proxy and Docker: 31
+scenarios (25 in English, 6 for French and the choice of language), no GPU, the worker never started.
 
 Real run on 18 November 2026 (versions 0.3.1 and 0.3.2), on an Ubuntu 22.04 VPS with an RTX PRO 4000 rented on
 RunPod: dry run, GPU link and re-run all passed. The pod had been deployed without the key; adding it with **Edit Pod**

@@ -9,7 +9,8 @@ Outil communautaire non officiel : il n’est fait ni par FLOP Labs ni par RunPo
 « Lancez votre Nœud GPU FLOP » de BreizhNode sur [Medium](https://medium.com/@breizh-node) : faites d’abord les étapes
 qui les précèdent.
 
-[Read in English](README.md). Version 0.3.2, 18 novembre 2026.
+[Read in English](README.md). Version 0.3.3, 19 novembre 2026. La commande parle anglais par défaut ;
+`FLOP_GPU_LANG=fr` la fait passer au français, et ce choix est retenu dans `flop-gpu.etat`.
 
 ## Avant de commencer
 
@@ -24,7 +25,7 @@ qui les précèdent.
 Sur votre VPS, en root (tapez d’abord `sudo -i`), une fois `/opt/flop-miner` et son `miner.env` prêts :
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Syphiliis/flop-gpu/v0.3.2/flop-gpu.sh -o /root/flop-gpu.sh && bash /root/flop-gpu.sh
+curl -fsSL https://raw.githubusercontent.com/Syphiliis/flop-gpu/v0.3.3/flop-gpu.sh -o /root/flop-gpu.sh && FLOP_GPU_LANG=fr bash /root/flop-gpu.sh
 ```
 
 Rien de ce que vous tapez ne s’affiche, c’est voulu. La commande :
@@ -42,11 +43,12 @@ Rien de ce que vous tapez ne s’affiche, c’est voulu. La commande :
 6. attend 40 minutes au plus, une ligne par minute, que le GPU soit prêt ; écrit `miner.env`, démarre le worker, et
    finit par votre pod, la façon d’arrêter de payer, et trois lignes à coller avant l’étape 8 du guide.
 
-Pour voir les consignes sans rien changer : `bash /root/flop-gpu.sh --a-vide`.
+Pour voir les consignes sans rien changer : `FLOP_GPU_LANG=fr bash /root/flop-gpu.sh --a-vide`.
 
-Si elle s’arrête en route (coupure SSH, fenêtre fermée, Ctrl+C), relancez `bash /root/flop-gpu.sh` : elle propose de
-garder le pod qu’elle connaît (Entrée), ou d’en donner un nouveau (`n`). Si votre pod redémarre en boucle faute de clé,
-ajoutez la variable par **Edit Pod** sur ce pod, puis redonnez son identifiant ; n’en déployez pas un second.
+Si elle s’arrête en route (coupure SSH, fenêtre fermée, Ctrl+C), relancez `FLOP_GPU_LANG=fr bash /root/flop-gpu.sh` :
+elle propose de garder le pod qu’elle connaît (Entrée), ou d’en donner un nouveau (`n`). Si votre pod redémarre en
+boucle faute de clé, ajoutez la variable par **Edit Pod** (menu ⋮ du pod), puis redonnez son identifiant ; n’en déployez pas
+un second. Une fois l’identifiant du pod donné, la langue est retenue : `bash /root/flop-gpu.sh` suffit ensuite.
 
 Pour arrêter de payer : console RunPod, **Pods**, votre pod, **Stop**, puis **Terminate** (la corbeille).
 
@@ -75,7 +77,7 @@ Pour arrêter de payer : console RunPod, **Pods**, votre pod, **Stop**, puis **T
 
 - `/opt/flop-miner/miner.env` : `OPENAI_BASE_URL` et `SESSION_PUBLIC_HOST`, remplacés d’un seul coup, en mode 600 ; la
   politique de décodage, par le `decode-policy.sh` de FLOP.
-- `/opt/flop-miner/flop-gpu.etat` : le fournisseur et l’identifiant du pod, aucun secret, en mode 600.
+- `/opt/flop-miner/flop-gpu.etat` : le fournisseur, l’identifiant du pod et la langue, aucun secret, en mode 600.
 - `/opt/flop-miner/.flop-gpu.verrou` : le verrou.
 
 Elle contacte votre pod par le proxy HTTPS de RunPod et le réseau FLOP par `decode-policy.sh` ; Docker tire ensuite les
@@ -86,8 +88,9 @@ images du worker. Rien ne part vers les auteurs de cet outil.
 | Option ou variable | Effet |
 |---|---|
 | `--a-vide`, `--dry-run` | passage à vide : montre les consignes, rien n’est écrit ni démarré |
-| `-h`, `--aide`, `--help` | le résumé de la commande |
+| `-h`, `--aide`, `--help` | le résumé de la commande, dans sa langue |
 | `FLOP_RUNPOD_TEMPLATE` | un autre template RunPod que `tipfc9vtff` |
+| `FLOP_GPU_LANG` | `fr` pour les messages en français, `en` pour l’anglais (par défaut) ; retenue dans `flop-gpu.etat` |
 | `FLOP_GPU_ATTENTE_MIN` | l’attente du GPU, en minutes (40 par défaut) |
 | `FLOP_MINER_DIR` | un autre dossier que `/opt/flop-miner` |
 
@@ -99,17 +102,18 @@ clé ou politique toujours refusés) ; 7 délai dépassé ; 8 worker ou nom HTTP
 La commande est un seul fichier bash lisible :
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Syphiliis/flop-gpu/v0.3.2/flop-gpu.sh -o /root/flop-gpu.sh
+curl -fsSL https://raw.githubusercontent.com/Syphiliis/flop-gpu/v0.3.3/flop-gpu.sh -o /root/flop-gpu.sh
 less /root/flop-gpu.sh
-bash /root/flop-gpu.sh --a-vide
+FLOP_GPU_LANG=fr bash /root/flop-gpu.sh --a-vide
 ```
 
-Vous lancez le fichier même que vous avez lu, et l’adresse nomme une version (`v0.3.2`), pas les derniers changements.
+Vous lancez le fichier même que vous avez lu, et l’adresse nomme une version (`v0.3.3`), pas les derniers changements.
 
 ## État
 
-Version 0.3.2, 18 novembre 2026. Éprouvée sur un banc qui simule le VPS, le proxy de RunPod et Docker : 25 scénarios,
-sans GPU, le worker jamais démarré.
+Version 0.3.3, 19 novembre 2026 : messages en anglais par défaut, en français sous `FLOP_GPU_LANG=fr` ; pour le reste,
+la même commande que la 0.3.2. La 0.3.3 a été éprouvée sur un banc qui simule le VPS, le proxy de RunPod et Docker :
+31 scénarios (25 en anglais, 6 pour le français et le choix de la langue), sans GPU, le worker jamais démarré.
 
 Passage réel le 18 novembre 2026 (versions 0.3.1 et 0.3.2), sur un VPS en Ubuntu 22.04 avec une RTX PRO 4000 louée
 chez RunPod : passage à vide, lien du GPU et relance tous réussis. Le pod avait été déployé sans la clé ; l’ajouter par
