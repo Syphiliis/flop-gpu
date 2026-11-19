@@ -8,7 +8,7 @@ No RunPod API key, no access to your RunPod account.
 This is an unofficial community tool: neither FLOP Labs nor RunPod made it. It replaces steps 6 and 7 of the guide
 "Launch Your FLOP GPU Node" by BreizhNode on [Medium](https://medium.com/@breizh-node): do the steps before them first.
 
-[Lire en français](README.fr.md). Version 0.3.3, 19 November 2026. The command speaks English by default;
+[Lire en français](README.fr.md). Version 0.3.4, 19 November 2026. The command speaks English by default;
 `FLOP_GPU_LANG=fr` switches it to French and is remembered in `flop-gpu.etat`. That happens
 once the pod's ID is given; until then, set `FLOP_GPU_LANG=fr` on each run.
 
@@ -25,10 +25,12 @@ once the pod's ID is given; until then, set `FLOP_GPU_LANG=fr` on each run.
 On your VPS, as root (type `sudo -i` first), once `/opt/flop-miner` and its `miner.env` are ready:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Syphiliis/flop-gpu/v0.3.3/flop-gpu.sh -o /root/flop-gpu.sh && bash /root/flop-gpu.sh
+curl -fsSL https://raw.githubusercontent.com/Syphiliis/flop-gpu/v0.3.4/flop-gpu.sh -o /root/flop-gpu.sh && bash /root/flop-gpu.sh
 ```
 
-Nothing you type is shown, by design. The command:
+Nothing you type is shown, by design. The screen goes through four numbered steps, one action per line, with
+colors when your terminal shows them; `NO_COLOR=1` turns them off (so do `TERM=dumb` and a redirected output).
+The command:
 
 1. shows your worker's HTTPS name and fetches FLOP's decoding policy;
 2. asks for your GPU provider: press Enter for RunPod;
@@ -39,7 +41,7 @@ Nothing you type is shown, by design. The command:
    Enter: the screen and its scrollback are cleared;
 5. tells you to pick an available card (CUDA 13.0 to 13.4 in **Filter**) and click **Deploy Pod**, never **Deploy when
    available**; then asks for the pod's ID (console, **Pods**), or its `https://…-8000.proxy.runpod.net` address;
-6. waits up to 40 minutes, one line per minute, until the GPU is ready; writes `miner.env`, starts the worker, and ends
+6. waits up to 40 minutes, one line per change or per minute, until the GPU is ready; writes `miner.env`, starts the worker, and ends
    with your pod, how to stop paying, and three lines to paste before step 8 of the guide.
 
 To see the instructions without changing anything: `bash /root/flop-gpu.sh --dry-run`.
@@ -91,6 +93,7 @@ worker's images. Nothing goes to the authors of this tool.
 | `FLOP_GPU_LANG` | `fr` for French messages, `en` for English (the default); remembered in `flop-gpu.etat` |
 | `FLOP_GPU_ATTENTE_MIN` | how long to wait for the GPU, in minutes (40 by default) |
 | `FLOP_MINER_DIR` | another folder than `/opt/flop-miner` |
+| `NO_COLOR` | `1` turns colors off |
 
 Exit codes: 0 done; 2 VPS not ready or wrong usage; 3 decoding policy; 6 pod (ID, model, key or policy still refused);
 7 time limit; 8 worker or HTTPS name; 130 interrupted.
@@ -100,18 +103,20 @@ Exit codes: 0 done; 2 VPS not ready or wrong usage; 3 decoding policy; 6 pod (ID
 The command is one readable bash file:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Syphiliis/flop-gpu/v0.3.3/flop-gpu.sh -o /root/flop-gpu.sh
+curl -fsSL https://raw.githubusercontent.com/Syphiliis/flop-gpu/v0.3.4/flop-gpu.sh -o /root/flop-gpu.sh
 less /root/flop-gpu.sh
 bash /root/flop-gpu.sh --dry-run
 ```
 
-You run the very file you read, and the address names a version (`v0.3.3`), not the latest changes.
+You run the very file you read, and the address names a version (`v0.3.4`), not the latest changes.
 
 ## Status
 
-Version 0.3.3, 19 November 2026: English messages by default, French with `FLOP_GPU_LANG=fr`; otherwise the same
-command as 0.3.2. Version 0.3.3 was checked on a test bench that simulates the VPS, the RunPod proxy and Docker: 31
-scenarios (25 in English, 6 for French and the choice of language), no GPU, the worker never started.
+Version 0.3.4, 19 November 2026: a clearer screen, in English and in French (four numbered steps, one action per
+line, colors that `NO_COLOR=1` turns off); otherwise the same command as 0.3.3, which brought English messages by
+default and French with `FLOP_GPU_LANG=fr`. Version 0.3.4 was checked on a test bench that simulates the VPS, the
+RunPod proxy and Docker: 33 scenarios (25 in English, 6 for French and the choice of language, 2 for colors and
+the 80-column width), no GPU, the worker never started.
 
 Real run on 18 November 2026 (versions 0.3.1 and 0.3.2), on an Ubuntu 22.04 VPS with an RTX PRO 4000 rented on
 RunPod: dry run, GPU link and re-run all passed. The pod had been deployed without the key; adding it with **Edit Pod**

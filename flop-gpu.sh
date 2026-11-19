@@ -22,6 +22,7 @@
 #   billed until Stop, then Terminate in the console.
 # Language: English by default; FLOP_GPU_LANG=fr switches to French and is remembered in flop-gpu.etat
 #   (FLOP_GPU_LANG=en switches back).
+# Colors: NO_COLOR=1 turns colors off; there are none either when the output is not a terminal.
 # Overrides: FLOP_MINER_DIR (/opt/flop-miner), FLOP_RUNPOD_TEMPLATE (tipfc9vtff), FLOP_GPU_ATTENTE_MIN (40).
 # Exit codes: 0 done; 2 VPS not ready or usage; 3 policy; 6 pod (ID, model, key or policy not fixed);
 #             7 time limit; 8 worker or public name; 130 interrupted.
@@ -45,10 +46,11 @@
 #   sortie pendant son affichage ; elle ne passe dans la ligne de commande d'aucun processus, ne s'écrit que dans
 #   miner.env ; rien de ce qui se tape ne s'affiche ; SESSION_AUTH_TOKEN et la clé du signataire ne s'affichent jamais ;
 # - rejouable : flop-gpu.etat garde le fournisseur et l'identifiant du pod (aucun secret), proposés au passage suivant ;
-#   dès la consigne montrée, toute sortie autre que 0 rappelle que le pod, s'il a été créé, se paie jusqu'à Stop puis
+#   dès la consigne montrée, toute sortie autre que 0 rappelle que le pod, s'il a été créé, se paie jusqu'à Stop, puis
 #   Terminate dans la console.
 # Langue : anglais par défaut ; FLOP_GPU_LANG=fr passe au français, retenu dans flop-gpu.etat
 #   (FLOP_GPU_LANG=en revient à l'anglais).
+# Couleurs : NO_COLOR=1 coupe les couleurs ; il n'y en a pas non plus quand la sortie n'est pas un terminal.
 # Dérogations : FLOP_MINER_DIR (/opt/flop-miner), FLOP_RUNPOD_TEMPLATE (tipfc9vtff), FLOP_GPU_ATTENTE_MIN (40).
 # Sorties : 0 fait ; 2 VPS pas prêt ou usage ; 3 politique ; 6 pod (identifiant, modèle, clé ou politique non
 #           corrigée) ; 7 délai dépassé ; 8 worker ou nom public ; 130 interrompu.
@@ -59,7 +61,7 @@ set -Eeuo pipefail
 umask 077
 export LC_ALL=C
 
-VERSION=0.3.3
+VERSION=0.3.4
 DIR=${FLOP_MINER_DIR:-/opt/flop-miner}
 ENVF=$DIR/miner.env
 ETAT=$DIR/flop-gpu.etat # FOURNISSEUR=, POD= et FLOP_GPU_LANG= : aucun secret
@@ -70,6 +72,15 @@ ATTENTE_MIN=$((10#$ATTENTE_MIN)) # 08 resterait de l'octal pour $(( ))
 PROXY=https://%s-8000.proxy.runpod.net
 PAS=20
 IP_FORCEE=""
+NL=$'\n'
+
+# Couleurs : codes SGR seuls (gras, atténué, vert, jaune, rouge, cyan, retour à la normale), et seulement si NO_COLOR
+# est vide ou absente, si TERM n'est ni vide ni dumb, et si la sortie standard comme la sortie d'erreur sont des terminaux ;
+# sinon toutes vides : l'écran est le même texte, sans codes. La clé, la politique et son empreinte n'en portent jamais.
+GRAS="" ATT="" VERT="" JAUNE="" ROUGE="" CYAN="" RAZ=""
+if [ -z "${NO_COLOR:-}" ] && [ -n "${TERM:-}" ] && [ "${TERM:-}" != dumb ] && [ -t 1 ] && [ -t 2 ]; then
+  GRAS=$'\033[1m' ATT=$'\033[2m' VERT=$'\033[32m' JAUNE=$'\033[33m' ROUGE=$'\033[31m' CYAN=$'\033[36m' RAZ=$'\033[0m'
+fi
 
 lire() { # valeur de la ligne CLE= de miner.env, ou du fichier donné
   awk -v k="$1" 'index($0, k "=") == 1 { v = substr($0, length(k) + 2) } END { printf "%s", v }' "${2:-$ENVF}"
@@ -85,7 +96,7 @@ case $LANGUE in
     case $LANGUE in en | fr) ;; *) LANGUE=en ;; esac
     ;;
   *)
-    echo "flop-gpu: FLOP_GPU_LANG must be en or fr / FLOP_GPU_LANG doit valoir en ou fr" >&2
+    printf '%s✗%s FLOP_GPU_LANG must be en or fr / FLOP_GPU_LANG doit valoir en ou fr\n' "$ROUGE" "$RAZ" >&2
     exit 2
     ;;
 esac
@@ -101,7 +112,7 @@ M_CLE=$(tx '[key masked]' '[clé masquée]')
 M_POL=$(tx '[policy masked]' '[politique masquée]')
 M_EMP=$(tx '[hash masked]' '[empreinte masquée]')
 M_EMP_ERR=$(tx '[hash]' '[empreinte]') # dans le message de decode-policy.sh
-M_ERR=$(tx 'flop-gpu: unexpected error (line %s)' 'flop-gpu : erreur inattendue (ligne %s)')
+M_ERR=${ROUGE}✗${RAZ}' '$(tx 'Unexpected error (line %s).' 'Erreur inattendue (ligne %s).')
 
 A_VIDE=0
 case "${1:-}" in
@@ -109,9 +120,9 @@ case "${1:-}" in
   --a-vide | --dry-run) A_VIDE=1 ;;
   -h | --aide | --help)
     if [ "$LANGUE" = fr ]; then
-      sed -n '29,54p' "$0" 2>/dev/null || true
+      sed -n '30,56p' "$0" 2>/dev/null || true
     else
-      sed -n '2,27p' "$0" 2>/dev/null || true
+      sed -n '2,28p' "$0" 2>/dev/null || true
     fi
     exit 0
     ;;
@@ -124,7 +135,38 @@ esac
 INF="" POL="" PH="" MH="" NOM_HTTPS="" FOURNISSEUR="" POD="" POD_CONNU="" SANTE="" ENV_TMP="" ETAT_TMP=""
 CODE_S=000 RAPPEL=0 CLE_ECRAN=0
 
+# L'écran : chaque texte passe par tx, msg ou l'une de ces aides, l'anglais d'abord, le français ensuite ; un texte de
+# plusieurs lignes garde ses suites en retrait sous sa première ligne. Les données (dire, la clé) ne passent par aucune.
 dire() { printf '%s\n' "$*"; } # une donnée telle quelle (politique, empreinte, ligne vide)
+titre() { # titre <n> <anglais> <français> : ligne vide, puis « [n/4] Titre » en gras
+  printf '\n%s[%s/4] %s%s\n' "$GRAS" "$1" "$(tx "$2" "$3")" "$RAZ"
+}
+ligne() { # ligne <anglais> [français] : du texte en retrait de 2
+  local t
+  t=$(tx "$1" "${2:-}")
+  printf '  %s\n' "${t//$NL/$NL  }"
+}
+attenue() { # attenue <anglais> [français] : du texte atténué, en retrait de 2
+  local t
+  t=$(tx "$1" "${2:-}")
+  printf '  %s%s%s\n' "$ATT" "${t//$NL/$NL  }" "$RAZ"
+}
+action() { # action <n> <anglais> <français> : une action numérotée, ses suites de ligne sous son texte
+  local t
+  t=$(tx "$2" "$3")
+  printf '  %s. %s\n' "$1" "${t//$NL/$NL     }"
+}
+fait() { # fait <anglais> [français] : « ✓ » vert, ce qui est fait
+  local t
+  t=$(tx "$1" "${2:-}")
+  printf '  %s✓%s %s\n' "$VERT" "$RAZ" "${t//$NL/$NL    }"
+}
+attention() { # attention <anglais> [français] : « ! » jaune, ce qui coûte ou ce qui bloque
+  local t
+  t=$(tx "$1" "${2:-}")
+  printf '  %s!%s %s\n' "$JAUNE" "$RAZ" "${t//$NL/$NL    }"
+}
+lien() { printf '    %s%s%s\n' "$CYAN" "$1" "$RAZ"; } # une adresse ou une ligne à copier (donnée), en retrait de 4
 masque() { # aucun secret ne sort, même dans un message d'erreur de FLOP
   local l
   while IFS= read -r l || [ -n "$l" ]; do
@@ -139,9 +181,9 @@ masque() { # aucun secret ne sort, même dans un message d'erreur de FLOP
 }
 rappel() { # armé dès la consigne montrée (le lecteur a pu créer un pod) : toute sortie autre que 0 le dit
   [ "$RAPPEL" = 1 ] || return 0
-  printf "$(tx 'If it was created, your RunPod pod%s is billed by the hour until you Stop then Terminate it in the RunPod console (Pods).' \
-    'S’il a été créé, votre pod RunPod%s se paie à l’heure jusqu’à Stop puis Terminate dans la console RunPod (Pods).')\n" \
-    "${POD:+ $POD}" >&2
+  printf "%s!%s $(tx 'If it was created, your RunPod pod%s is billed by the hour\n  until you Stop then Terminate it in the RunPod console (Pods).' \
+    'S’il a été créé, votre pod RunPod%s se paie à l’heure\n  jusqu’à Stop puis Terminate dans la console RunPod (Pods).')\n" \
+    "$JAUNE" "$RAZ" "${POD:+ $POD}" >&2
 }
 effacer_cle() { # si la clé est à l'écran : écran puis historique effacés, dans cet ordre ; le drapeau ne tombe
   # qu'après, pour qu'un signal reçu entre les deux efface encore (deux effacements ne gênent pas)
@@ -150,10 +192,12 @@ effacer_cle() { # si la clé est à l'écran : écran puis historique effacés, 
     CLE_ECRAN=0
   fi
 }
-die() { # die <code> <message anglais> <message français> ; sans français, l'anglais (jamais « unbound variable »)
-  local c=$1
+die() { # die <code> <message anglais> <message français> ; sans français, l'anglais (jamais « unbound variable ») ;
+  # « ✗ » rouge, puis le message ; ses lignes suivantes (le remède) en retrait de 2
+  local c=$1 t
   effacer_cle
-  if [ "$LANGUE" = fr ]; then printf 'flop-gpu : %s\n' "${3:-$2}"; else printf 'flop-gpu: %s\n' "$2"; fi | masque >&2
+  t=$(tx "$2" "${3:-}")
+  printf '%s✗%s %s\n' "$ROUGE" "$RAZ" "${t//$NL/$NL  }" | masque >&2
   rappel
   exit "$c"
 }
@@ -171,7 +215,7 @@ interrompu() {
   trap - INT TERM HUP
   effacer_cle
   stty echo 2>/dev/null </dev/tty || true
-  printf '\n%s\n' "$(tx 'Interrupted.' 'Interrompu.')" >&2
+  printf '\n%s✗%s %s\n' "$ROUGE" "$RAZ" "$(tx 'Interrupted.' 'Interrompu.')" >&2
   rappel
   exit 130
 }
@@ -181,33 +225,34 @@ trap 'trap - ERR; effacer_cle; printf "$M_ERR\n" "$LINENO" >&2; rappel' ERR
 
 preparer() {
   local o
-  [ "$(id -u)" = 0 ] || die 2 "run the command as root (type sudo -i first)" \
-    "lancez la commande en root (tapez d’abord sudo -i)"
+  [ "$(id -u)" = 0 ] || die 2 "Run the command as root: type sudo -i first." \
+    "Lancez la commande en root : tapez d’abord sudo -i."
   for o in curl jq awk flock timeout docker stty; do
-    command -v "$o" >/dev/null 2>&1 || die 2 "missing tool: $o (step 2 of the guide)" "outil absent : $o (étape 2 du guide)"
+    command -v "$o" >/dev/null 2>&1 || die 2 "Missing tool: $o (step 2 of the guide)." \
+      "Outil absent : $o (étape 2 du guide)."
   done
-  docker compose version >/dev/null 2>&1 || die 2 "docker compose is missing (step 2 of the guide)" \
-    "docker compose absent (étape 2 du guide)"
+  docker compose version >/dev/null 2>&1 || die 2 "docker compose is missing (step 2 of the guide)." \
+    "docker compose est absent (étape 2 du guide)."
   [ -f "$ENVF" ] && [ -x "$DIR/decode-policy.sh" ] && [ -f "$DIR/docker-compose.miner.yml" ] &&
-    [ -f "$DIR/docker-compose.tls.yml" ] || die 2 "$DIR is not ready: do steps 3 to 5 of the guide first" \
-    "$DIR n’est pas prêt : faites d’abord les étapes 3 à 5 du guide"
-  [[ $TEMPLATE_ID =~ ^[A-Za-z0-9_-]{1,64}$ ]] || die 2 "invalid RunPod template ID: $TEMPLATE_ID" \
-    "identifiant de template RunPod invalide : $TEMPLATE_ID"
-  { : </dev/tty; } 2>/dev/null || die 2 "no terminal: run the command in a terminal, to answer its questions" \
-    "aucun terminal : lancez la commande dans un terminal, pour y répondre"
+    [ -f "$DIR/docker-compose.tls.yml" ] || die 2 "$DIR is not ready: do steps 3 to 5 of the guide first." \
+    "$DIR n’est pas prêt : faites d’abord les étapes 3 à 5 du guide."
+  [[ $TEMPLATE_ID =~ ^[A-Za-z0-9_-]{1,64}$ ]] || die 2 "Invalid RunPod template ID: $TEMPLATE_ID." \
+    "Identifiant de template RunPod invalide : $TEMPLATE_ID."
+  { : </dev/tty; } 2>/dev/null || die 2 "No terminal: run the command in a terminal, to answer its questions." \
+    "Aucun terminal : lancez la commande dans un terminal, pour y répondre."
   if [ "$A_VIDE" = 0 ]; then
     exec 9>"$DIR/.flop-gpu.verrou"
-    flock -n 9 || die 2 "the command is already running in another terminal" \
-      "la commande tourne déjà dans un autre terminal"
+    flock -n 9 || die 2 "The command is already running in another terminal." \
+      "La commande tourne déjà dans un autre terminal."
   fi
   MH=$(lire MODEL_HASH | tr 'A-F' 'a-f')
-  [[ $MH =~ ^0x[0-9a-f]{64}$ ]] || die 2 "MODEL_HASH unreadable in miner.env (step 3 of the guide)" \
-    "MODEL_HASH illisible dans miner.env (étape 3 du guide)"
+  [[ $MH =~ ^0x[0-9a-f]{64}$ ]] || die 2 "MODEL_HASH is unreadable in miner.env (step 3 of the guide)." \
+    "MODEL_HASH est illisible dans miner.env (étape 3 du guide)."
   INF=$(lire INFERENCE_API_KEY)
   if ! [[ $INF =~ ^[A-Za-z0-9._~+/=-]{16,256}$ ]]; then
     INF=""
-    die 2 "INFERENCE_API_KEY empty or invalid in miner.env (step 4 of the guide)" \
-      "INFERENCE_API_KEY vide ou invalide dans miner.env (étape 4 du guide)"
+    die 2 "INFERENCE_API_KEY is empty or invalid in miner.env (step 4 of the guide)." \
+      "INFERENCE_API_KEY est vide ou invalide dans miner.env (étape 4 du guide)."
   fi
   lire_politique
 }
@@ -232,62 +277,69 @@ ip_publique() {
 }
 
 nom_https() { # NOM_HTTPS, le nom public du worker : connu avant la première question
-  local ip
+  local ip garde=0
   NOM_HTTPS=$(lire SESSION_PUBLIC_HOST)
   if [ -n "$NOM_HTTPS" ] && [[ $NOM_HTTPS != *.sslip.io ]]; then
-    msg "Worker HTTPS name: $NOM_HTTPS (already in miner.env, kept)." \
-      "Nom HTTPS du worker : $NOM_HTTPS (déjà dans miner.env, gardé)."
+    garde=1
   else
-    ip=$(ip_publique) || die 8 \
-      "no public IPv4 address found: write SESSION_PUBLIC_HOST=<DNS name of this VPS> in miner.env, then run the \
-command again. Nothing else is done." \
-      "aucune adresse IPv4 publique trouvée : écrivez SESSION_PUBLIC_HOST=<nom DNS de ce VPS> \
-dans miner.env, puis relancez. Rien d’autre n’est fait."
+    ip=$(ip_publique) || die 8 "No public IPv4 address found.
+Write SESSION_PUBLIC_HOST=<DNS name of this VPS> in miner.env,
+then run the command again. Nothing else is done." "Aucune adresse IPv4 publique trouvée.
+Écrivez SESSION_PUBLIC_HOST=<nom DNS de ce VPS> dans miner.env,
+puis relancez la commande. Rien d’autre n’est fait."
     NOM_HTTPS=${ip//./-}.sslip.io
-    msg "Worker HTTPS name: $NOM_HTTPS (check that these numbers are the IP address of your VPS)." \
-      "Nom HTTPS du worker : $NOM_HTTPS (vérifiez que ces chiffres sont l’adresse IP de votre VPS)."
+  fi
+  printf '  %s  %s%s%s\n' "$(tx 'Worker address' 'Adresse du worker')" "$CYAN" "$NOM_HTTPS" "$RAZ"
+  if [ "$garde" = 1 ]; then
+    attenue "Already in miner.env, kept." "Déjà dans miner.env, gardée."
+  else
+    attenue "These numbers must be your VPS's IP address." "Ces chiffres doivent être l’adresse IP de votre VPS."
   fi
   [[ $NOM_HTTPS =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] ||
-    die 8 "SESSION_PUBLIC_HOST is not a lowercase DNS name: $NOM_HTTPS. Nothing else is done." \
-      "SESSION_PUBLIC_HOST n’est pas un nom DNS en minuscules : $NOM_HTTPS. Rien d’autre n’est fait."
+    die 8 "SESSION_PUBLIC_HOST is not a lowercase DNS name: $NOM_HTTPS.
+Nothing else is done." "SESSION_PUBLIC_HOST n’est pas un nom DNS en minuscules : $NOM_HTTPS.
+Rien d’autre n’est fait."
 }
 
 politique() {
   local v=() err
   if [ "$A_VIDE" = 1 ]; then
-    msg "Dry run: decode-policy.sh is not run, the policy read is the one in miner.env." \
-      "Passage à vide : decode-policy.sh n’est pas lancé, la politique lue est celle de miner.env."
+    ligne "Dry run: nothing will be written or started." "Passage à vide : rien ne sera écrit ni démarré."
   else
-    msg "Decoding policy: ./decode-policy.sh miner.env (FLOP package)…" \
-      "Politique de décodage : ./decode-policy.sh miner.env (paquet FLOP)…"
+    ligne "Reading the decoding policy from FLOP…" "Lecture de la politique de décodage chez FLOP…"
     [ -z "$(lire FLOP_CLI)" ] || v+=("FLOP_CLI=$(lire FLOP_CLI)")
     [ -z "$(lire FLOP_RPC)" ] || v+=("FLOP_RPC=$(lire FLOP_RPC)")
     if ! err=$(decode_policy "${v[@]+"${v[@]}"}"); then
       if [ -n "$POL" ]; then # la chaîne a pu retirer la politique écrite : on reprend celle que FLOP publie
-        msg "The policy in miner.env is refused: the command takes the one FLOP publishes instead." \
-          "La politique de miner.env est refusée : la commande reprend celle que FLOP publie."
+        attention "FLOP refuses the policy in miner.env: taking the one it publishes." \
+          "FLOP refuse la politique de miner.env : reprise de celle qu’il publie."
         vider_politique
         err=$(decode_policy "${v[@]+"${v[@]}"}") || {
           printf '%s\n' "$err" | sed -E "s/(0x)?[0-9a-fA-F]{64}/$M_EMP_ERR/g; s/[{].*\$/$M_POL/" | masque >&2
-          die 3 "decode-policy.sh refused the policy, or the FLOP network did not answer within 5 min: nothing else is done" \
-            "decode-policy.sh a refusé la politique, ou le réseau FLOP n’a pas répondu en 5 min : rien d’autre n’est fait"
+          die 3 "decode-policy.sh refused the policy, or the FLOP network did not answer
+within 5 min. Nothing else is done." "decode-policy.sh a refusé la politique, ou le réseau FLOP n’a pas répondu
+en 5 min. Rien d’autre n’est fait."
         }
       else
         printf '%s\n' "$err" | sed -E "s/(0x)?[0-9a-fA-F]{64}/$M_EMP_ERR/g; s/[{].*\$/$M_POL/" | masque >&2
-        die 3 "decode-policy.sh refused the policy, or the FLOP network did not answer within 5 min: nothing else is done" \
-          "decode-policy.sh a refusé la politique, ou le réseau FLOP n’a pas répondu en 5 min : rien d’autre n’est fait"
+        die 3 "decode-policy.sh refused the policy, or the FLOP network did not answer
+within 5 min. Nothing else is done." "decode-policy.sh a refusé la politique, ou le réseau FLOP n’a pas répondu
+en 5 min. Rien d’autre n’est fait."
       fi
     fi
   fi
   lire_politique
   if ! { [[ $PH =~ ^0x[0-9a-f]{64}$ ]] && printf '%s' "$POL" | jq -e 'type == "object"' >/dev/null 2>&1; }; then
     if [ "$A_VIDE" = 1 ]; then
-      msg "Dry run: no policy in miner.env yet; the real command runs decode-policy.sh." \
-        "Passage à vide : pas encore de politique dans miner.env ; la vraie commande lance decode-policy.sh."
+      attenue "No policy in miner.env yet: the real command reads it from FLOP." \
+        "Pas encore de politique dans miner.env : la vraie commande la lit chez FLOP."
     else
-      die 3 "no decoding policy in miner.env after decode-policy.sh: nothing else is done" \
-        "pas de politique de décodage dans miner.env après decode-policy.sh : rien d’autre n’est fait"
+      die 3 "No decoding policy in miner.env after decode-policy.sh.
+Nothing else is done." "Pas de politique de décodage dans miner.env après decode-policy.sh.
+Rien d’autre n’est fait."
     fi
+  elif [ "$A_VIDE" = 0 ]; then
+    fait "Decoding policy read from FLOP" "Politique de décodage lue chez FLOP"
   fi
 }
 decode_policy() { # stdout jeté, stderr rendu (pour un message masqué) ; Ctrl+C l'interrompt (--foreground)
@@ -305,25 +357,25 @@ vider_politique() { # DECODE_POLICY= et DECODE_POLICY_HASH= vides, d'un seul cou
 
 choisir_fournisseur() { # FOURNISSEUR ; QuickPod et Vast viendront dans une version suivante
   local r=""
-  dire ""
-  msg "Which provider do you rent your GPU from?" "Chez quel fournisseur louez-vous votre GPU ?"
+  titre 1 "GPU provider" "Fournisseur du GPU"
   dire "  1) RunPod"
   for _ in 1 2 3; do
     vider_tty
-    printf '%s' "$(tx 'GPU provider (Enter for RunPod): ' 'Fournisseur de GPU (Entrée pour RunPod) : ')" >/dev/tty
+    printf '%s' "$(tx '  Press Enter for RunPod: ' '  Appuyez sur Entrée pour RunPod : ')" >/dev/tty
     IFS= read -r -s r </dev/tty || r=""
     printf '\n' >/dev/tty
     case ${r//[[:space:]]/} in
       "" | 1 | "&") # & : la touche 1 d'un clavier AZERTY, sans Maj (recette réelle du 18/11)
         FOURNISSEUR=runpod
-        msg "Provider: RunPod." "Fournisseur : RunPod."
+        fait "RunPod" "RunPod"
         return 0
         ;;
     esac
-    msg "Press Enter: only RunPod is offered for now (QuickPod and Vast will come later)." \
-      "Appuyez sur Entrée : seul RunPod est proposé pour l’instant (QuickPod et Vast viendront ensuite)."
+    attention "Press Enter: only RunPod is offered for now.
+QuickPod and Vast will come later." "Appuyez sur Entrée : seul RunPod est proposé pour l’instant.
+QuickPod et Vast viendront ensuite."
   done
-  die 2 "no provider chosen" "aucun fournisseur choisi"
+  die 2 "No provider chosen." "Aucun fournisseur choisi."
 }
 
 lire_etat() { # POD_CONNU : le pod que flop-gpu.etat garde pour ce fournisseur, s'il est bien formé
@@ -338,106 +390,89 @@ garder_pod() { # vrai si le lecteur garde le pod connu de ce VPS (Entrée, o, ou
   # nouveau (n, non, no) ; dans les deux langues, casse indifférente
   local r=""
   RAPPEL=1 # ce pod a existé : il peut se payer encore
-  dire ""
-  msg "RunPod pod of this VPS, from a previous run: $POD_CONNU." \
-    "Pod RunPod de ce VPS, d’après un passage précédent : $POD_CONNU."
+  printf '  %s  %s%s%s\n' "$(tx 'Pod from a previous run' 'Pod d’un passage précédent')" "$CYAN" "$POD_CONNU" "$RAZ"
   for _ in 1 2 3; do
     vider_tty
-    printf '%s' "$(tx 'Press Enter to keep this pod, n to enter a new one: ' \
-      'Entrée pour garder ce pod, n pour en donner un nouveau : ')" >/dev/tty
+    printf '%s' "$(tx '  Press Enter to keep this pod, n to enter a new one: ' \
+      '  Appuyez sur Entrée pour garder ce pod, n pour en donner un nouveau : ')" >/dev/tty
     IFS= read -r -s r </dev/tty || r=""
     printf '\n' >/dev/tty
     r=${r//[[:space:]]/}
     case ${r,,} in
       "" | o | oui | y | yes)
         POD=$POD_CONNU
-        msg "Pod kept: $POD." "Pod gardé : $POD."
+        fait "Pod kept: $POD" "Pod gardé : $POD"
         return 0
         ;;
       n | non | no)
-        msg "Pod $POD_CONNU is billed while it runs: if you no longer need it, Stop, then Terminate it in the RunPod \
-console." "Le pod $POD_CONNU se paie tant qu’il tourne : s’il ne sert plus, Stop, puis Terminate dans la console RunPod."
+        attention "Pod $POD_CONNU is billed while it runs.
+If you no longer need it: Stop, then Terminate (Pods)." "Le pod $POD_CONNU se paie tant qu’il tourne.
+S’il ne sert plus : Stop, puis Terminate (Pods)."
         return 1
         ;;
     esac
-    msg "Answer with Enter (this pod is kept) or n (you enter a new one)." \
-      "Répondez par Entrée (ce pod est gardé) ou par n (vous en donnez un nouveau)."
+    attention "Answer with Enter (keep this pod) or n (enter a new one)." \
+      "Répondez par Entrée (garder ce pod) ou par n (en donner un nouveau)."
   done
-  die 2 "answer not understood: run the command again" "réponse non comprise : relancez la commande"
+  die 2 "Answer not understood. Run the command again." "Réponse non comprise. Relancez la commande."
 }
 
-consigne_runpod() { # 1 : où coller la clé ; 2 : la carte, Deploy et l'identifiant (après la clé, l'écran effacé)
+consigne_runpod() { # 1 : le lien, puis où coller la clé ; 2 : le GPU, Deploy Pod et où lire l'identifiant (après la
+  # clé, l'écran effacé)
   RAPPEL=1 # dès ici, le lecteur a pu créer un pod
-  if [ "$1" = 1 ] && [ "$LANGUE" = fr ]; then
-    cat <<EOF
-
-Dans votre navigateur, ouvrez ce lien (la recherche de la console RunPod ne trouve pas le template) :
-  https://console.runpod.io/hub/template/$TEMPLATE_ID
-Le template public « FLOP GPU devnet » porte déjà l’image de FLOP, le disque, le port 8000, le modèle et la politique
-publiée ; il ne lui manque que votre clé d’inférence :
-  - cliquez Configure Pod, puis Set overrides, et ouvrez Environment variables ;
-  - cliquez Add Environment variable : nom INFERENCE_API_KEY, valeur la clé que la commande va afficher, sans toucher
-    aux autres lignes ; puis Set overrides, en bas de la fenêtre. Sans cette variable, le pod redémarre en boucle et
-    se paie jusqu’à ce que vous le supprimiez.
-EOF
-  elif [ "$1" = 1 ]; then
-    cat <<EOF
-
-In your browser, open this link (the RunPod console's search does not find the template):
-  https://console.runpod.io/hub/template/$TEMPLATE_ID
-The public template "FLOP GPU devnet" already has FLOP's image, the disk, port 8000, the model and the published
-policy; all it lacks is your inference key:
-  - click Configure Pod, then Set overrides, and open Environment variables;
-  - click Add Environment variable: name INFERENCE_API_KEY, value the key the command is about to show, without
-    touching the other lines; then Set overrides, at the bottom of the window. Without this variable, the pod
-    restarts in a loop and is billed until you delete it.
-EOF
-  elif [ "$LANGUE" = fr ]; then
-    cat <<EOF
-
-Puis, dans la même page RunPod :
-  - GPU : une carte disponible du guide (NVIDIA, 16 Go ou plus, RTX 30 ou plus récente, ou l’A40 ; 24 Go suffisent),
-    en CUDA 13.0 à 13.4. Le template règle ce filtre, mais passer le cloud à Community dans Filter le remet à « Any » :
-    recochez 13.0 à 13.4 ;
-  - cliquez Deploy Pod : le pod se paie à l’heure dès lors, jusqu’à Stop, puis Terminate dans la console (Pods). Si le
-    bouton dit Deploy when available, la carte n’est pas libre : choisissez-en une autre.
-Son identifiant se lit ensuite dans la console RunPod (Pods), ou dans son adresse
-https://<identifiant>-8000.proxy.runpod.net : la commande s’en sert pour joindre votre GPU.
-EOF
+  if [ "$1" = 1 ]; then
+    ligne "Open this link in your browser:" "Ouvrez ce lien dans votre navigateur :"
+    lien "https://console.runpod.io/hub/template/$TEMPLATE_ID"
+    ligne 'The public template "FLOP GPU devnet" has everything but your key.' \
+      "Le template public « FLOP GPU devnet » contient tout, sauf votre clé."
+    action 1 "Click ${GRAS}Configure Pod${RAZ}, then ${GRAS}Set overrides${RAZ}." \
+      "Cliquez sur ${GRAS}Configure Pod${RAZ}, puis sur ${GRAS}Set overrides${RAZ}."
+    action 2 "Open ${GRAS}Environment variables${RAZ}, without touching the lines already there." \
+      "Ouvrez ${GRAS}Environment variables${RAZ}, sans toucher aux lignes déjà présentes."
+    action 3 "Click ${GRAS}Add Environment variable${RAZ} and name it INFERENCE_API_KEY." \
+      "Cliquez sur ${GRAS}Add Environment variable${RAZ} et nommez-la INFERENCE_API_KEY."
+    action 4 "Paste the key below as its value, then click ${GRAS}Set overrides${RAZ} at the bottom." \
+      "Collez la clé ci-dessous en valeur, puis cliquez sur ${GRAS}Set overrides${RAZ} en bas."
+    attention "Without this key, the pod restarts in a loop
+and you pay until you delete it." "Sans cette clé, le pod redémarre en boucle
+et se paie jusqu’à ce que vous le supprimiez."
   else
-    cat <<EOF
-
-Then, on the same RunPod page:
-  - GPU: an available card from the guide (NVIDIA, 16 GB or more, RTX 30 series or newer, or the A40; 24 GB is
-    enough), with CUDA 13.0 to 13.4. The template sets this filter, but switching the cloud to Community in Filter
-    resets it to "Any": tick 13.0 to 13.4 again;
-  - click Deploy Pod: from then on the pod is billed by the hour, until Stop, then Terminate in the console (Pods).
-    If the button says Deploy when available, that card is not available right now: choose another one.
-The pod's ID then shows in the RunPod console (Pods), or in its address
-https://<ID>-8000.proxy.runpod.net: the command uses it to reach your GPU.
-EOF
+    ligne "Then, on the same RunPod page:" "Puis, dans la même page RunPod :"
+    action 5 "Pick an available GPU: NVIDIA, RTX 30 series or newer, or the A40,
+with 16 GB or more (24 GB is plenty). CUDA is already set to 13.0 to 13.4.
+Choosing Community in Filter resets CUDA to Any: tick 13.0 to 13.4 again." \
+      "Choisissez un GPU disponible : NVIDIA, RTX 30 ou plus récente, ou l’A40,
+avec 16 Go ou plus (24 Go suffisent). CUDA est déjà réglé sur 13.0 à 13.4.
+Passer à Community dans Filter remet CUDA à Any : recochez 13.0 à 13.4."
+    action 6 "Click ${GRAS}Deploy Pod${RAZ}. If it says Deploy when available, pick another GPU." \
+      "Cliquez sur ${GRAS}Deploy Pod${RAZ}. S’il affiche Deploy when available,
+prenez un autre GPU."
+    attention "From now on the pod is billed by the hour,
+until Stop, then Terminate (Pods)." "Dès lors, le pod se paie à l’heure,
+jusqu’à Stop, puis Terminate (Pods)."
+    ligne "Copy the pod's ID from the RunPod console (Pods)." \
+      "Copiez l’identifiant du pod dans la console RunPod (Pods)."
   fi
 }
 
 montrer_cle() { # INFERENCE_API_KEY seule sur sa ligne, sur Entrée ; écran et historique effacés une fois collée
   dire ""
-  msg "The key about to be shown is the password between your worker and your GPU: do not show it to anyone." \
-    "La clé qui va s’afficher est le mot de passe entre votre worker et votre GPU : ne la montrez à personne."
-  msg "As soon as you have pasted it in RunPod, the screen and its scrollback will be cleared." \
-    "Dès que vous l’aurez collée dans RunPod, l’écran et son historique s’effaceront."
+  attention "This key is the password between your worker and your GPU.
+Show it to no one. The screen is cleared as soon as you paste it." \
+    "Cette clé est le mot de passe entre votre worker et votre GPU.
+Ne la montrez à personne. L’écran s’efface dès qu’elle est collée."
   vider_tty
-  printf '%s' "$(tx 'Press Enter to show the key: ' 'Entrée pour afficher la clé : ')" >/dev/tty
-  IFS= read -r -s _ </dev/tty || die 2 "terminal closed: the key is not shown" "terminal fermé : la clé n’est pas affichée"
+  printf '%s' "$(tx '  Press Enter to show the key: ' '  Appuyez sur Entrée pour afficher la clé : ')" >/dev/tty
+  IFS= read -r -s _ </dev/tty || die 2 "Terminal closed: the key is not shown." "Terminal fermé : la clé n’est pas affichée."
   printf '\n' >/dev/tty
   CLE_ECRAN=1 # dès ici, toute sortie efface l'écran (effacer_cle : die, interrompu, piège ERR, fin)
   printf '%s\n' "$INF" >/dev/tty
   vider_tty
-  printf '%s' "$(tx 'Copy it into the value of INFERENCE_API_KEY, confirm in RunPod, then press Enter once the key is pasted: ' \
-    'Copiez-la dans la valeur de INFERENCE_API_KEY, validez dans RunPod, puis Entrée une fois la clé collée : ')" >/dev/tty
+  printf '%s' "$(tx '  Press Enter once the key is pasted and saved in RunPod: ' \
+    '  Appuyez sur Entrée une fois la clé collée et enregistrée dans RunPod : ')" >/dev/tty
   IFS= read -r -s _ </dev/tty || :
   effacer_cle
-  msg "Key pasted: the screen and its scrollback have been cleared." \
-    "Clé collée : l’écran et son historique ont été effacés."
+  fait "Key pasted. Screen and scrollback cleared." "Clé collée. Écran et historique effacés."
 }
 
 demander_pod() { # POD : l'identifiant tapé, ou tiré de l'adresse du proxy ; lu sans écho, réaffiché une fois validé
@@ -446,14 +481,14 @@ demander_pod() { # POD : l'identifiant tapé, ou tiré de l'adresse du proxy ; l
   for _ in 1 2 3; do
     vider_tty
     if [ "$A_VIDE" = 0 ]; then
-      printf '%s' "$(tx 'Pod ID (or its address https://…-8000.proxy.runpod.net), then Enter: ' \
-        'Identifiant du pod (ou son adresse https://…-8000.proxy.runpod.net), puis Entrée : ')" >/dev/tty
+      printf '%s' "$(tx '  Pod ID (or its address https://…-8000.proxy.runpod.net): ' \
+        '  Identifiant du pod (ou son adresse https://…-8000.proxy.runpod.net) : ')" >/dev/tty
     elif [ -n "$POD_CONNU" ]; then
-      printf "$(tx 'Pod ID to check once (Enter: %s): ' 'Identifiant du pod à sonder une fois (Entrée : %s) : ')" \
+      printf "$(tx '  Pod ID to check once (Enter: %s): ' '  Identifiant du pod à sonder une fois (Entrée : %s) : ')" \
         "$POD_CONNU" >/dev/tty
     else
-      printf '%s' "$(tx 'Pod ID to check once (Enter to skip): ' \
-        'Identifiant du pod à sonder une fois (Entrée pour passer) : ')" >/dev/tty
+      printf '%s' "$(tx '  Pod ID to check once (Enter to skip): ' \
+        '  Identifiant du pod à sonder une fois (Entrée pour passer) : ')" >/dev/tty
     fi
     IFS= read -r -s saisie </dev/tty || saisie=""
     printf '\n' >/dev/tty
@@ -464,10 +499,10 @@ demander_pod() { # POD : l'identifiant tapé, ou tiré de l'adresse du proxy ; l
     fi
     # la clé d'inférence collée ici, entière ou en partie, n'est ni acceptée ni réaffichée
     if [ -n "$saisie" ] && { [[ $saisie == *"$INF"* ]] || { [ "${#saisie}" -ge 6 ] && [[ $INF == *"$saisie"* ]]; }; }; then
-      msg "This is your inference key: it goes in the INFERENCE_API_KEY variable of the RunPod page, and the command \
-does not show it. Here, type the ID of your pod, read in the RunPod console (Pods)." \
-        "C’est votre clé d’inférence : elle va dans la variable INFERENCE_API_KEY de la page RunPod, et la commande \
-ne l’affiche pas. Ici, tapez l’identifiant de votre pod, lu dans la console RunPod (Pods)."
+      attention "This is your inference key: it goes in INFERENCE_API_KEY, in RunPod,
+and is not shown here. Type your pod's ID instead." \
+        "C’est votre clé d’inférence : elle va dans INFERENCE_API_KEY, chez RunPod,
+et ne s’affiche pas ici. Tapez plutôt l’identifiant de votre pod."
       continue
     fi
     if [[ $saisie =~ ^[a-z0-9]{6,40}$ ]]; then
@@ -476,19 +511,20 @@ ne l’affiche pas. Ici, tapez l’identifiant de votre pod, lu dans la console 
       POD=${BASH_REMATCH[2]}
     fi
     if [ -n "$POD" ]; then
-      msg "Pod: $POD." "Pod : $POD."
+      fait "Pod $POD" "Pod $POD"
       return 0
     fi
     if [ -z "$saisie" ]; then
-      msg "Nothing was typed." "Rien n’a été tapé."
+      attention "Nothing was typed." "Rien n’a été tapé."
     else
-      msg "This is not a RunPod pod ID (lowercase letters and digits, read in the console, Pods); what you typed is \
-not shown." "Ce n’est pas un identifiant de pod RunPod (lettres minuscules et chiffres, lus dans la console, Pods) ; \
-la saisie n’est pas réaffichée."
+      attention "This is not a RunPod pod ID (lowercase letters and digits).
+What you typed is not shown." "Ce n’est pas un identifiant de pod RunPod (minuscules et chiffres).
+La saisie n’est pas réaffichée."
     fi
   done
-  die 6 "no valid pod ID in three tries: run the command again once the pod is deployed" \
-    "aucun identifiant de pod valide en trois essais : relancez la commande une fois le pod déployé"
+  die 6 "No valid pod ID in three tries.
+Run the command again once the pod is deployed." "Aucun identifiant de pod valide en trois essais.
+Relancez la commande une fois le pod déployé."
 }
 
 garder_etat() { # flop-gpu.etat : FOURNISSEUR=, POD= et FLOP_GPU_LANG= (la langue du passage), écrits d'un seul
@@ -500,13 +536,17 @@ garder_etat() { # flop-gpu.etat : FOURNISSEUR=, POD= et FLOP_GPU_LANG= (la langu
   ETAT_TMP=""
 }
 
-etat_sante() { # $1 code HTTP de /health, $2 model_identity
+etat_sante() { # $1 code HTTP de /health, $2 model_identity : l'état du pod en mots, le code HTTP atténué
   case $1 in
-    200) msg "model being measured (${2:-?})" "modèle en cours de mesure (${2:-?})" ;;
-    000) msg "not reachable yet" "pas encore joignable" ;;
-    401) msg "key refused (HTTP 401)" "clé refusée (HTTP 401)" ;;
-    404 | 502 | 503 | 504 | 520 | 521 | 522 | 523 | 524) msg "starting (HTTP $1)" "en démarrage (HTTP $1)" ;;
-    *) echo "HTTP $1" ;;
+    200)
+      if [ "$2" = measured ]; then tx 'Model measured' 'Modèle mesuré'; else tx 'Model being measured…' 'Modèle en cours de mesure…'; fi
+      ;;
+    000) tx 'Not reachable yet' 'Pas encore joignable' ;;
+    401) printf '%s %s(HTTP 401)%s' "$(tx 'Key refused' 'Clé refusée')" "$ATT" "$RAZ" ;;
+    404 | 502 | 503 | 504 | 520 | 521 | 522 | 523 | 524)
+      printf '%s %s(HTTP %s)%s' "$(tx 'Starting' 'Démarrage')" "$ATT" "$1" "$RAZ"
+      ;;
+    *) printf '%s %s(HTTP %s)%s' "$(tx 'Unexpected answer' 'Réponse inattendue')" "$ATT" "$1" "$RAZ" ;;
   esac
 }
 
@@ -524,28 +564,32 @@ sonder() { # passage à vide : un seul /health, en lecture
   local e
   sante
   e=$(etat_sante "$CODE_S" "$(printf '%s' "$SANTE" | jq -r '.model_identity // empty' 2>/dev/null || true)")
-  msg "Dry run: /health of pod $POD: $e." "Passage à vide : /health du pod $POD : $e."
+  ligne "Pod $POD now: $e" "Pod $POD à cet instant : $e"
 }
 
 montrer_politique() { # le pod sert une autre politique : celle de miner.env et son empreinte (publiques), à mettre
   # dans le pod par Edit Pod ; Entrée une fois remplacées
   dire ""
-  msg "Pod $POD serves the right model, but not the decoding policy in miner.env (policy_ok false): FLOP has \
-changed it since the template was created." \
-    "Le pod $POD sert le bon modèle, mais pas la politique de décodage de miner.env (policy_ok false) : FLOP l’a \
-changée depuis la création du template."
-  msg "In the RunPod console (Pods), click the three-dot menu of this pod, then Edit Pod, then Environment Variables: \
-replace the values of DECODE_POLICY and DECODE_POLICY_HASH with the lines below, which are public, without touching \
-the other variables, then click Save: the pod restarts." \
-    "Dans la console RunPod (Pods), ouvrez le menu ⋮ de ce pod, cliquez Edit Pod, puis Environment Variables : \
-remplacez les valeurs de DECODE_POLICY et de DECODE_POLICY_HASH par les lignes ci-dessous, publiques, sans toucher \
-aux autres variables, puis cliquez Save : le pod redémarre."
-  msg "Value of DECODE_POLICY:" "Valeur de DECODE_POLICY :"
+  attention "Pod $POD serves the right model, but another decoding policy.
+FLOP has changed it since the template was created." \
+    "Le pod $POD sert le bon modèle, mais une autre politique de décodage.
+FLOP l’a changée depuis la création du template."
+  action 1 "In the RunPod console (Pods), open this pod's three-dot menu." \
+    "Dans la console RunPod (Pods), ouvrez le menu ⋮ de ce pod."
+  action 2 "Click ${GRAS}Edit Pod${RAZ}, then ${GRAS}Environment Variables${RAZ}." \
+    "Cliquez sur ${GRAS}Edit Pod${RAZ}, puis sur ${GRAS}Environment Variables${RAZ}."
+  action 3 "Replace the values of DECODE_POLICY and DECODE_POLICY_HASH with the
+public values below. Leave the other variables as they are." \
+    "Remplacez les valeurs de DECODE_POLICY et de DECODE_POLICY_HASH par les
+valeurs publiques ci-dessous. Ne touchez pas aux autres variables."
+  action 4 "Click ${GRAS}Save${RAZ}: the pod restarts." "Cliquez sur ${GRAS}Save${RAZ} : le pod redémarre."
+  ligne "Value of DECODE_POLICY:" "Valeur de DECODE_POLICY :"
   dire "$POL"
-  msg "Value of DECODE_POLICY_HASH:" "Valeur de DECODE_POLICY_HASH :"
+  ligne "Value of DECODE_POLICY_HASH:" "Valeur de DECODE_POLICY_HASH :"
   dire "$(lire DECODE_POLICY_HASH)"
   vider_tty
-  printf '%s' "$(tx 'Press Enter once the policy is replaced: ' 'Entrée une fois la politique remplacée : ')" >/dev/tty
+  printf '%s' "$(tx '  Press Enter once the policy is replaced: ' \
+    '  Appuyez sur Entrée une fois la politique remplacée : ')" >/dev/tty
   IFS= read -r -s _ </dev/tty || :
   printf '\n' >/dev/tty
 }
@@ -555,29 +599,36 @@ attendre() { # /health toutes les PAS s jusqu'à la limite : retour au premier m
   # mesure) ; 401 : la clé réaffichée (montrer_cle), autre politique : montrer_politique, chacun une fois par passage,
   # puis la limite repart pour ATTENTE_MIN ; ensuite, le même refus 3 min d'affilée depuis l'Entrée (tout autre code,
   # dont un code de redémarrage, remet le compte à zéro) : sortie 6, avec son remède ; limite dépassée : sortie 7, dont
-  # la fin suit le dernier état lu (un refus : son remède ; sinon le conseil)
-  local debut limite maint ident okm okp refus etat_gpu ligne dernier="" vu=0 d404=0 dit404=0 cle_vue=0 pol_vue=0
+  # la fin suit le dernier état lu (un refus : son remède ; sinon le conseil). Une ligne « m:ss  état » par changement
+  # d'état, ou par minute.
+  local debut limite maint ident okm okp refus etat_gpu dernier="" vu=0 d404=0 dit404=0 cle_vue=0 pol_vue=0
   local t_cle=0 t_pol=0 conseil remede_cle remede_pol
-  conseil=$(tx "check the pod ID, that the pod is running, and its logs (console, Logs): \"INFERENCE_API_KEY is \
-required\" means the variable is missing, \"cuda>=13.0\" a host with the wrong CUDA." \
-    "vérifiez l’identifiant, que le pod tourne, et ses journaux (console, Logs) : « INFERENCE_API_KEY is \
-required » veut dire la variable oubliée, « cuda>=13.0 » un hôte au mauvais CUDA.")
-  remede_cle=$(tx "in the RunPod console (Pods), click the three-dot menu of this pod, then Edit Pod: check that \
-INFERENCE_API_KEY holds the key shown, whole and without spaces, and that the change is saved; then run the command \
-again, which will show the key again." \
-    "dans la console RunPod (Pods), ouvrez le menu ⋮ de ce pod, cliquez Edit Pod : vérifiez que INFERENCE_API_KEY \
-porte la clé affichée, entière et sans espace, et que la modification est enregistrée ; puis relancez la commande, \
-qui remontrera la clé.")
-  remede_pol=$(tx "in the RunPod console (Pods), click the three-dot menu of this pod, then Edit Pod: check that \
-DECODE_POLICY and DECODE_POLICY_HASH hold the values shown, whole, and that the change is saved; then run the command \
-again, which will show the policy again." \
-    "dans la console RunPod (Pods), ouvrez le menu ⋮ de ce pod, cliquez Edit Pod : vérifiez que DECODE_POLICY et \
-DECODE_POLICY_HASH portent les valeurs affichées, entières, et que la modification est enregistrée ; puis relancez la \
-commande, qui remontrera la politique.")
+  conseil=$(tx "Check the pod ID, that the pod is running, and its logs (console, Logs).
+\"INFERENCE_API_KEY is required\" means the variable is missing;
+\"cuda>=13.0\" means a host with the wrong CUDA." \
+    "Vérifiez l’identifiant, que le pod tourne, et ses journaux (console, Logs).
+« INFERENCE_API_KEY is required » veut dire la variable oubliée ;
+« cuda>=13.0 », un hôte au mauvais CUDA.")
+  remede_cle=$(tx "In the RunPod console (Pods), open this pod's three-dot menu, then Edit Pod.
+Check that INFERENCE_API_KEY holds the key shown, whole, without spaces,
+and that the change is saved.
+Then run the command again: it will show the key again." \
+    "Dans la console RunPod (Pods), ouvrez le menu ⋮ de ce pod, puis Edit Pod.
+Vérifiez que INFERENCE_API_KEY porte la clé affichée, entière, sans espace,
+et que la modification est enregistrée.
+Puis relancez la commande : elle remontrera la clé.")
+  remede_pol=$(tx "In the RunPod console (Pods), open this pod's three-dot menu, then Edit Pod.
+Check that DECODE_POLICY and DECODE_POLICY_HASH hold the values shown, whole,
+and that the change is saved.
+Then run the command again: it will show the policy again." \
+    "Dans la console RunPod (Pods), ouvrez le menu ⋮ de ce pod, puis Edit Pod.
+Vérifiez que DECODE_POLICY et DECODE_POLICY_HASH portent les valeurs
+affichées, entières, et que la modification est enregistrée.
+Puis relancez la commande : elle remontrera la politique.")
   debut=$(date +%s)
   limite=$((debut + ATTENTE_MIN * 60))
-  msg "Waiting for the GPU, $ATTENTE_MIN min at most: the first start downloads about 9 GB of image, then the model." \
-    "Attente du GPU, $ATTENTE_MIN min au plus : le premier démarrage télécharge environ 9 Go d’image, puis le modèle."
+  attenue "Up to $ATTENTE_MIN min. The first start downloads about 9 GB, then the model." \
+    "$ATTENTE_MIN min au plus. Le premier démarrage télécharge environ 9 Go, puis le modèle."
   while :; do
     maint=$(date +%s)
     ident="" okm=false okp=false refus=""
@@ -591,10 +642,11 @@ commande, qui remontrera la politique.")
         okp=$(printf '%s' "$SANTE" | H=${PH#0x} jq -r '((.decode_policy_hash // "") | ascii_downcase | ltrimstr("0x")) == env.H' \
           2>/dev/null || echo false)
         if [ "$ident" = measured ]; then
-          [ "$okm" = true ] || die 6 "model_ok false: the GPU serves another model than the one in miner.env, the \
-template is out of date. Delete the pod (Stop, then Terminate) and tell the author of the guide." \
-            "model_ok false : le GPU sert un autre modèle que celui de miner.env, le template \
-n’est plus à jour. Supprimez le pod (Stop, puis Terminate) et prévenez l’auteur du guide."
+          [ "$okm" = true ] || die 6 "The GPU serves another model than the one in miner.env.
+The template is out of date. Delete the pod (Stop, then Terminate)
+and tell the author of the guide." "Le GPU sert un autre modèle que celui de miner.env.
+Le template n’est plus à jour. Supprimez le pod (Stop, puis Terminate)
+et prévenez l’auteur du guide."
           if [ "$okp" = true ]; then break; fi
           refus=politique # bon modèle mesuré, autre politique
         fi
@@ -609,24 +661,27 @@ n’est plus à jour. Supprimez le pod (Stop, puis Terminate) et prévenez l’a
         if [ "$cle_vue" = 0 ]; then
           cle_vue=1
           dire ""
-          msg "Pod $POD refuses the key in miner.env (HTTP 401): its INFERENCE_API_KEY variable holds another \
-value. In the RunPod console (Pods), click the three-dot menu of this pod, then Edit Pod, then Environment Variables: \
-replace the value of INFERENCE_API_KEY with the key the command is about to show, without touching the other \
-variables, then click Save: the pod restarts." \
-            "Le pod $POD refuse la clé de miner.env (HTTP 401) : sa variable INFERENCE_API_KEY porte une autre \
-valeur. Dans la console RunPod (Pods), ouvrez le menu ⋮ de ce pod, cliquez Edit Pod, puis Environment Variables : \
-remplacez la valeur de INFERENCE_API_KEY par la clé que la commande va afficher, sans toucher aux autres variables, \
-puis cliquez Save : le pod redémarre."
+          attention "Pod $POD refuses the key in miner.env (HTTP 401).
+Its INFERENCE_API_KEY variable holds another value." "Le pod $POD refuse la clé de miner.env (HTTP 401).
+Sa variable INFERENCE_API_KEY porte une autre valeur."
+          action 1 "In the RunPod console (Pods), open this pod's three-dot menu." \
+            "Dans la console RunPod (Pods), ouvrez le menu ⋮ de ce pod."
+          action 2 "Click ${GRAS}Edit Pod${RAZ}, then ${GRAS}Environment Variables${RAZ}." \
+            "Cliquez sur ${GRAS}Edit Pod${RAZ}, puis sur ${GRAS}Environment Variables${RAZ}."
+          action 3 "Replace the value of INFERENCE_API_KEY with the key shown below.
+Leave the other variables as they are." "Remplacez la valeur de INFERENCE_API_KEY par la clé affichée plus bas.
+Ne touchez pas aux autres variables."
+          action 4 "Click ${GRAS}Save${RAZ}: the pod restarts." "Cliquez sur ${GRAS}Save${RAZ} : le pod redémarre."
           montrer_cle
           t_cle=$(date +%s)
           limite=$((t_cle + ATTENTE_MIN * 60))
-          msg "Waiting again, $ATTENTE_MIN min at most: the pod restarts with the key in miner.env." \
-            "L’attente reprend, $ATTENTE_MIN min au plus : le pod redémarre avec la clé de miner.env."
+          ligne "Waiting again, $ATTENTE_MIN min at most: the pod restarts with the key." \
+            "L’attente reprend, $ATTENTE_MIN min au plus : le pod redémarre avec la clé."
           continue
         fi
-        [ $((maint - t_cle)) -lt 180 ] || die 6 "pod $POD still refuses the key in miner.env (HTTP 401) after 3 min: \
-$remede_cle" "le pod $POD refuse toujours la clé de miner.env (HTTP 401) depuis \
-3 min : $remede_cle"
+        [ $((maint - t_cle)) -lt 180 ] || die 6 "Pod $POD still refuses the key (HTTP 401) after 3 min.
+$remede_cle" "Le pod $POD refuse toujours la clé (HTTP 401) depuis 3 min.
+$remede_cle"
         ;;
       politique)
         if [ "$pol_vue" = 0 ]; then
@@ -634,46 +689,49 @@ $remede_cle" "le pod $POD refuse toujours la clé de miner.env (HTTP 401) depuis
           montrer_politique
           t_pol=$(date +%s)
           limite=$((t_pol + ATTENTE_MIN * 60))
-          msg "Waiting again, $ATTENTE_MIN min at most: the pod restarts with the policy in miner.env." \
-            "L’attente reprend, $ATTENTE_MIN min au plus : le pod redémarre avec la politique de miner.env."
+          ligne "Waiting again, $ATTENTE_MIN min at most: the pod restarts with the policy." \
+            "L’attente reprend, $ATTENTE_MIN min au plus : le pod redémarre avec la politique."
           continue
         fi
-        [ $((maint - t_pol)) -lt 180 ] || die 6 "pod $POD still serves a different decoding policy from miner.env \
-after 3 min: $remede_pol" "le pod $POD sert toujours une autre politique de décodage que \
-miner.env depuis 3 min : $remede_pol"
+        [ $((maint - t_pol)) -lt 180 ] || die 6 "Pod $POD still serves a different decoding policy after 3 min.
+$remede_pol" "Le pod $POD sert toujours une autre politique, depuis 3 min.
+$remede_pol"
         ;;
     esac
     etat_gpu=$(etat_sante "$CODE_S" "$ident")
     if [ "$refus" = politique ]; then
-      etat_gpu=$(tx "model measured, but not the decoding policy in miner.env" \
-        "modèle mesuré, mais pas la politique de décodage de miner.env")
+      etat_gpu=$(tx "Model measured, other decoding policy" "Modèle mesuré, autre politique de décodage")
     fi
-    ligne=$(tx "GPU: $etat_gpu" "GPU : $etat_gpu")
-    if [ "$ligne" != "$dernier" ] || [ $((maint - vu)) -ge 60 ]; then
-      printf '[%3d min %02d s] %s\n' $(((maint - debut) / 60)) $(((maint - debut) % 60)) "$ligne"
-      dernier=$ligne vu=$maint
+    if [ "$etat_gpu" != "$dernier" ] || [ $((maint - vu)) -ge 60 ]; then
+      printf '  %d:%02d  %s\n' $(((maint - debut) / 60)) $(((maint - debut) % 60)) "$etat_gpu"
+      dernier=$etat_gpu vu=$maint
     fi
     if [ "$d404" != 0 ] && [ "$dit404" = 0 ] && [ $((maint - d404)) -ge 180 ]; then
       dit404=1
-      msg "Pod $POD has answered 404 for 3 min: $conseil Still waiting." \
-        "Depuis 3 min, le pod $POD répond 404 : $conseil L’attente continue."
+      attention "Pod $POD has answered 404 for 3 min. Still waiting.
+$conseil" "Depuis 3 min, le pod $POD répond 404. L’attente continue.
+$conseil"
     fi
     if [ "$maint" -ge "$limite" ]; then
       case $refus in
-        cle) die 7 "the GPU is not ready after $(((maint - debut) / 60)) min, the pod still refuses the key in \
-miner.env (HTTP 401): $remede_cle" "le GPU n’est pas prêt après $(((maint - debut) / 60)) min, le pod refuse toujours la clé de \
-miner.env (HTTP 401) : $remede_cle" ;;
-        politique) die 7 "the GPU is not ready after $(((maint - debut) / 60)) min, the pod still serves a different \
-decoding policy from miner.env: $remede_pol" "le GPU n’est pas prêt après $(((maint - debut) / 60)) min, le pod sert toujours une autre \
-politique de décodage que miner.env : $remede_pol" ;;
-        *) die 7 "the GPU is not ready after $(((maint - debut) / 60)) min: $conseil" \
-          "le GPU n’est pas prêt après $(((maint - debut) / 60)) min : $conseil" ;;
+        cle) die 7 "The GPU is not ready after $(((maint - debut) / 60)) min.
+Pod $POD still refuses the key in miner.env (HTTP 401).
+$remede_cle" "Le GPU n’est pas prêt après $(((maint - debut) / 60)) min.
+Le pod $POD refuse toujours la clé de miner.env (HTTP 401).
+$remede_cle" ;;
+        politique) die 7 "The GPU is not ready after $(((maint - debut) / 60)) min.
+Pod $POD still serves a different decoding policy from miner.env.
+$remede_pol" "Le GPU n’est pas prêt après $(((maint - debut) / 60)) min.
+Le pod $POD sert toujours une autre politique que miner.env.
+$remede_pol" ;;
+        *) die 7 "The GPU is not ready after $(((maint - debut) / 60)) min.
+$conseil" "Le GPU n’est pas prêt après $(((maint - debut) / 60)) min.
+$conseil" ;;
       esac
     fi
     sleep "$PAS"
   done
-  msg "GPU ready: model_identity measured, model_ok true, policy_ok true." \
-    "GPU prêt : model_identity measured, model_ok true, policy_ok true."
+  fait "GPU ready: model and policy verified" "GPU prêt : modèle et politique vérifiés"
 }
 
 ecrire_env() { # $1 OPENAI_BASE_URL, $2 SESSION_PUBLIC_HOST : remplacés (ou ajoutés) d'un seul coup, mode 600
@@ -692,65 +750,63 @@ ecrire_env() { # $1 OPENAI_BASE_URL, $2 SESSION_PUBLIC_HOST : remplacés (ou ajo
 lier() {
   local c=(docker compose --env-file miner.env -f docker-compose.miner.yml -f docker-compose.tls.yml)
   ecrire_env "$(printf "$PROXY" "$POD")/v1" "$NOM_HTTPS"
-  msg "miner.env: OPENAI_BASE_URL and SESSION_PUBLIC_HOST written. Starting the worker, as in step 7…" \
-    "miner.env : OPENAI_BASE_URL et SESSION_PUBLIC_HOST écrits. Démarrage du worker, comme à l’étape 7…"
+  fait "miner.env updated  ${ATT}OPENAI_BASE_URL, SESSION_PUBLIC_HOST${RAZ}" \
+    "miner.env mis à jour  ${ATT}OPENAI_BASE_URL, SESSION_PUBLIC_HOST${RAZ}"
+  ligne "Starting the worker…" "Démarrage du worker…"
   (cd "$DIR" && "${c[@]}" pull && "${c[@]}" up -d) ||
-    die 8 "the worker failed to start: cd $DIR, then docker compose --env-file miner.env -f docker-compose.miner.yml \
--f docker-compose.tls.yml logs" "le démarrage du worker a échoué : cd $DIR, puis docker compose --env-file miner.env -f docker-compose.miner.yml \
--f docker-compose.tls.yml logs"
+    die 8 "The worker failed to start. Read its logs:
+  cd $DIR
+  docker compose --env-file miner.env -f docker-compose.miner.yml \\
+    -f docker-compose.tls.yml logs" "Le démarrage du worker a échoué. Lisez ses journaux :
+  cd $DIR
+  docker compose --env-file miner.env -f docker-compose.miner.yml \\
+    -f docker-compose.tls.yml logs"
+  fait "Worker started" "Worker démarré"
 }
 
 resume() {
-  if [ "$LANGUE" = fr ]; then
-    cat <<EOF
-
-C’est fait : votre GPU RunPod sert votre worker FLOP.
-- Pod RunPod : $POD, à l’adresse $(printf "$PROXY" "$POD").
-- Il se paie à l’heure tant qu’il tourne, même worker arrêté. Pour arrêter de payer : console RunPod, Pods, ce pod,
-  Stop, puis Terminate (corbeille).
-- Crédit RunPod : à 0 \$, RunPod supprime ce pod (il n’a pas de volume) et le worker perd son GPU. Activez la
-  recharge automatique ou une alerte de solde (Billing).
-- Relancer cette commande propose de garder ce pod, ou d’en donner un nouveau.
-- Pour l’étape 8 du guide, collez d’abord ces trois lignes :
-    cd $DIR
-    C="docker compose --env-file miner.env -f docker-compose.miner.yml -f docker-compose.tls.yml"
-    NAME="\$(sed -n 's/^SESSION_PUBLIC_HOST=//p' miner.env)"; echo "\$NAME"
-EOF
-  else
-    cat <<EOF
-
-Done: your RunPod GPU now serves your FLOP worker.
-- RunPod pod: $POD, at $(printf "$PROXY" "$POD").
-- It is billed by the hour while it runs, even with the worker stopped. To stop paying: RunPod console, Pods, this
-  pod, Stop, then Terminate (trash icon).
-- RunPod credit: at \$0, RunPod deletes this pod (it has no volume) and the worker loses its GPU. Turn on
-  Auto-pay or a Low balance alert (Billing).
-- Running this command again offers to keep this pod, or to enter a new one.
-- For step 8 of the guide, first paste these three lines:
-    cd $DIR
-    C="docker compose --env-file miner.env -f docker-compose.miner.yml -f docker-compose.tls.yml"
-    NAME="\$(sed -n 's/^SESSION_PUBLIC_HOST=//p' miner.env)"; echo "\$NAME"
-EOF
-  fi
+  printf '\n%s%s%s%s\n' "$GRAS" "$VERT" "$(tx 'Done. Your RunPod GPU now serves your FLOP worker.' \
+    'C’est fait. Votre GPU RunPod sert maintenant votre worker FLOP.')" "$RAZ"
+  printf '  %s  %s%s%s  %s%s%s\n' "$(tx 'RunPod pod' 'Pod RunPod')" "$CYAN" "$POD" "$RAZ" \
+    "$CYAN" "$(printf "$PROXY" "$POD")" "$RAZ"
+  attention "The pod is billed by the hour while it runs, even with the worker stopped.
+To stop paying: RunPod console, Pods, this pod, Stop, then Terminate." \
+    "Le pod se paie à l’heure tant qu’il tourne, même worker arrêté.
+Pour arrêter de payer : console RunPod, Pods, ce pod, Stop, puis Terminate."
+  attention "At \$0 of credit, RunPod deletes this pod and your worker loses its GPU.
+Turn on Auto-pay or a Low balance alert (Billing)." \
+    "À 0 \$ de crédit, RunPod supprime ce pod et votre worker perd son GPU.
+Activez Auto-pay ou une Low balance alert (Billing)."
+  ligne "Run this command again to keep this pod or enter a new one." \
+    "Relancez cette commande pour garder ce pod ou en donner un nouveau."
+  ligne "Next: step 8 of the guide. Paste these three lines first:" \
+    "Ensuite : étape 8 du guide. Collez d’abord ces trois lignes :"
+  lien "cd $DIR"
+  lien 'C="docker compose --env-file miner.env -f docker-compose.miner.yml -f docker-compose.tls.yml"'
+  lien "NAME=\"\$(sed -n 's/^SESSION_PUBLIC_HOST=//p' miner.env)\"; echo \"\$NAME\""
 }
 
 stty -echo 2>/dev/null </dev/tty || true # rien de ce qui se tape ne s'affiche, pas même une clé collée trop tôt
-msg "flop-gpu $VERSION: links your GPU to your FLOP worker (steps 6 and 7 of the guide)." \
-  "flop-gpu $VERSION : relie votre GPU à votre worker FLOP (étapes 6 et 7 du guide)."
+printf '%sflop-gpu %s%s  %s%s%s\n' "$GRAS" "$VERSION" "$RAZ" "$ATT" \
+  "$(tx 'Link your rented GPU to your FLOP worker (guide, steps 6 and 7)' \
+    'Reliez votre GPU loué à votre worker FLOP (guide, étapes 6 et 7)')" "$RAZ"
 preparer
 nom_https
 politique
 choisir_fournisseur
 lire_etat
+titre 2 "Your RunPod pod" "Votre pod RunPod"
 if [ "$A_VIDE" = 1 ]; then
   consigne_runpod 1
-  msg "(Dry run: the real command shows your INFERENCE_API_KEY here, when you ask for it, then clears the screen.)" \
-    "(Passage à vide : la vraie commande affiche ici votre INFERENCE_API_KEY, quand vous le demandez, puis efface \
-l’écran.)"
+  dire ""
+  attenue "Dry run: the real command shows your key here, then clears the screen." \
+    "Passage à vide : la vraie commande affiche ici votre clé, puis efface l’écran."
+  dire ""
   consigne_runpod 2
   demander_pod
   if [ -n "$POD" ]; then sonder; fi
-  msg "Dry run finished: nothing was written or started." "Passage à vide terminé : rien n’a été écrit ni démarré."
+  printf '\n%s✓%s %s\n' "$VERT" "$RAZ" "$(tx 'Dry run finished: nothing was written or started.' \
+    'Passage à vide terminé : rien n’a été écrit ni démarré.')"
   exit 0
 fi
 if [ -z "$POD_CONNU" ] || ! garder_pod; then
@@ -760,6 +816,8 @@ if [ -z "$POD_CONNU" ] || ! garder_pod; then
   demander_pod
 fi
 garder_etat
+titre 3 "Waiting for your GPU" "Attente de votre GPU"
 attendre
+titre 4 "Starting the worker" "Démarrage du worker"
 lier
 resume
